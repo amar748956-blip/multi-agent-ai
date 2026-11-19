@@ -853,34 +853,125 @@ if st.session_state.get("trip_start_from_inspiration"):
         "'Starting Point — From' and confirm the destination below. Then generate your plan."
     )
 st.markdown("### ✨ Find your kind of getaway")
-preset_columns = st.columns(4)
-presets = [
-    ("💑 Honeymoon", "Honeymoon", "Udaipur"),
-    ("👨‍👩‍👧 Family", "Family trip", "Jaipur"),
-    ("🎒 Solo travel", "Solo travel", "Rishikesh"),
-    ("🥾 Adventure", "Adventure", "Manali"),
-    ("🛕 Pilgrimage", "Religious / pilgrimage", "Varanasi"),
-    ("🌤️ Weekend", "Weekend getaway", "Pachmarhi"),
-    ("❄️ Winter", "Season-based winter trip", "Shimla"),
-    ("🌧️ Monsoon", "Season-based monsoon trip", "Lonavala"),
+
+# Destinations are curated by travel style, so each category shows relevant places.
+CATEGORY_DESTINATIONS = {
+    "Honeymoon": [
+        ("Udaipur", "Udaipur romantic lake palace Rajasthan"),
+        ("Munnar", "Munnar tea gardens Kerala"),
+        ("Goa", "Goa romantic beach sunset"),
+        ("Andaman", "Andaman Islands tropical beach"),
+    ],
+    "Family trip": [
+        ("Jaipur", "Jaipur Hawa Mahal family travel"),
+        ("Mysuru", "Mysore Palace Karnataka"),
+        ("Ooty", "Ooty Nilgiri hills toy train"),
+        ("Shimla", "Shimla Ridge family holiday"),
+    ],
+    "Solo travel": [
+        ("Rishikesh", "Rishikesh Ganges river travel"),
+        ("Pondicherry", "Pondicherry French Quarter"),
+        ("McLeod Ganj", "McLeod Ganj mountains"),
+        ("Kochi", "Fort Kochi Kerala streets"),
+    ],
+    "Adventure": [
+        ("Manali", "Manali mountains trekking"),
+        ("Rishikesh", "Rishikesh river rafting"),
+        ("Leh", "Leh Ladakh mountain landscape"),
+        ("Bir Billing", "Bir Billing paragliding Himachal"),
+    ],
+    "Religious / pilgrimage": [
+        ("Varanasi", "Varanasi ghats Ganges"),
+        ("Amritsar", "Golden Temple Amritsar"),
+        ("Tirupati", "Tirumala Tirupati temple"),
+        ("Ujjain", "Mahakaleshwar temple Ujjain"),
+    ],
+    "Weekend getaway": [
+        ("Pachmarhi", "Pachmarhi Madhya Pradesh waterfalls"),
+        ("Agra", "Taj Mahal Agra"),
+        ("Lonavala", "Lonavala hills waterfalls"),
+        ("Nashik", "Nashik vineyards temples"),
+    ],
+    "Season-based winter trip": [
+        ("Shimla", "Shimla winter snow"),
+        ("Manali", "Manali snow mountains winter"),
+        ("Gulmarg", "Gulmarg Kashmir snow"),
+        ("Auli", "Auli Uttarakhand snow skiing"),
+    ],
+    "Season-based monsoon trip": [
+        ("Lonavala", "Lonavala monsoon green hills waterfall"),
+        ("Cherrapunji", "Cherrapunji monsoon waterfalls"),
+        ("Coorg", "Coorg monsoon green coffee hills"),
+        ("Mahabaleshwar", "Mahabaleshwar monsoon valley"),
+    ],
+}
+
+CATEGORY_BUTTONS = [
+    ("💑 Honeymoon", "Honeymoon"),
+    ("👨‍👩‍👧 Family", "Family trip"),
+    ("🎒 Solo travel", "Solo travel"),
+    ("🥾 Adventure", "Adventure"),
+    ("🛕 Pilgrimage", "Religious / pilgrimage"),
+    ("🌤️ Weekend", "Weekend getaway"),
+    ("❄️ Winter", "Season-based winter trip"),
+    ("🌧️ Monsoon", "Season-based monsoon trip"),
 ]
-for i, (label, style_value, dest_value) in enumerate(presets):
+
+# Use a helper to preselect country/state/city dropdown values for a clicked destination.
+def set_destination_dropdowns(city_to_select):
+    try:
+        countries = get_countries()
+        india_code = next((code for name, code in countries if name.casefold() == "india"), None)
+        if not india_code:
+            return
+        st.session_state["destination_country"] = next(
+            name for name, code in countries if code == india_code
+        )
+        for state_name, state_code in get_states(india_code):
+            city_list = get_cities(india_code, state_code, state_name)
+            matching_city = next(
+                (city for city in city_list if city.casefold() == city_to_select.casefold()),
+                None,
+            )
+            if matching_city:
+                st.session_state[f"destination_state_{india_code}"] = state_name
+                st.session_state[f"destination_city_{india_code}_{state_code}"] = matching_city
+                return
+    except Exception:
+        # The preset remains available in the form if the location dataset is unavailable.
+        return
+
+preset_columns = st.columns(4)
+for i, (label, style_value) in enumerate(CATEGORY_BUTTONS):
     with preset_columns[i % 4]:
         if st.button(label, key=f"preset_{i}", use_container_width=True):
-            st.session_state["preset_destination"] = dest_value
+            st.session_state["active_inspiration_category"] = style_value
             st.session_state["preset_style"] = style_value
             st.session_state["trip_start_from_inspiration"] = True
+            st.session_state.pop("preset_destination", None)
+            st.session_state["inspiration_places"] = CATEGORY_DESTINATIONS[style_value]
+            st.session_state["scroll_to_journey"] = True
             st.rerun()
 
 inspiration_heading, shuffle_column = st.columns([5, 1])
 with inspiration_heading:
-    st.markdown("### 🖼️ Destination inspiration")
+    active_category = st.session_state.get("active_inspiration_category")
+    if active_category:
+        st.markdown(f"### 🖼️ {active_category} destinations")
+        st.caption(f"Showing destinations selected for {active_category.lower()}.")
+    else:
+        st.markdown("### 🖼️ Destination inspiration")
 with shuffle_column:
     if st.button("🔄 More places", key="shuffle_inspiration"):
-        st.session_state.pop("inspiration_places", None)
+        if active_category:
+            st.session_state["inspiration_places"] = random.sample(
+                CATEGORY_DESTINATIONS[active_category],
+                k=len(CATEGORY_DESTINATIONS[active_category]),
+            )
+        else:
+            st.session_state.pop("inspiration_places", None)
         st.rerun()
 
-# Pick a new set when this browser session starts; normal widget reruns keep the same set.
 if "inspiration_places" not in st.session_state:
     all_suggestions = [
         ("Jaipur", "Hawa Mahal Jaipur"),
@@ -910,9 +1001,12 @@ for i, (place_name, image_query) in enumerate(st.session_state["inspiration_plac
                 st.caption("Image unavailable")
         except Exception:
             st.caption("Image unavailable")
+
         if st.button(f"Plan a trip to {place_name}", key=f"choose_{i}", use_container_width=True):
             st.session_state["preset_destination"] = place_name
             st.session_state["trip_start_from_inspiration"] = True
+            st.session_state["scroll_to_journey"] = True
+            set_destination_dropdowns(place_name)
             st.rerun()
 
 
@@ -920,6 +1014,7 @@ for i, (place_name, image_query) in enumerate(st.session_state["inspiration_plac
 # TRAVEL PLANNING FORM
 # ============================================================
 
+st.markdown('<div id="journey-details"></div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="section-title">'
     '📍 Journey Details'
@@ -1108,6 +1203,8 @@ if submitted:
             ", ".join(interests) if interests else "General sightseeing"
         )
 
+        selected_travel_style = st.session_state.get("preset_style", "")
+        selected_inspiration_destination = st.session_state.get("preset_destination", "")
         user_query = f"""
 
 Plan a trip using these details.
@@ -1119,7 +1216,7 @@ Return date: {return_date}
 Duration: {duration} days
 Number of travellers: {travellers}
 Total budget: {budget}
-Travel style: {travel_style}
+Travel style: {st.session_state.get("preset_style") or travel_style}
 Interests: {interests_text}
 Additional requirements: {additional_notes or "None"}
 
@@ -1272,4 +1369,23 @@ if "last_result" in st.session_state:
     st.caption(
         "Verify transport schedules, hotel details, prices, "
         "and availability with the relevant provider before travelling."
+    )
+
+
+# Scroll the page to Journey Details after a user clicks a category or destination card.
+if st.session_state.pop("scroll_to_journey", False):
+    st.components.v1.html(
+        """
+        <script>
+        const scrollToJourney = () => {
+          try {
+            const doc = window.parent.document;
+            const target = doc.getElementById("journey-details");
+            if (target) target.scrollIntoView({behavior: "smooth", block: "start"});
+          } catch (e) {}
+        };
+        setTimeout(scrollToJourney, 250);
+        </script>
+        """,
+        height=0,
     )
