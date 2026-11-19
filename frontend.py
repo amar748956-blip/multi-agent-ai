@@ -735,69 +735,6 @@ with st.sidebar:
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_destination_images(query, limit=8):
-    """Return several relevant destination images from Wikimedia Commons."""
-    try:
-        response = requests.get(
-            "https://commons.wikimedia.org/w/api.php",
-            params={
-                "action": "query",
-                "format": "json",
-                "generator": "search",
-                "gsrsearch": f"filetype:bitmap {query}",
-                "gsrnamespace": 6,
-                "gsrlimit": min(max(int(limit) * 2, 8), 20),
-                "prop": "imageinfo",
-                "iiprop": "url",
-                "iiurlwidth": 900,
-            },
-            headers={"User-Agent": "WanderverseTravelPlanner/1.0"},
-            timeout=12,
-        )
-        response.raise_for_status()
-        pages = list(response.json().get("query", {}).get("pages", {}).values())
-        random.shuffle(pages)
-        images = []
-        seen = set()
-        for page in pages:
-            info = (page.get("imageinfo") or [{}])[0]
-            url = info.get("thumburl") or info.get("url")
-            if (
-                url
-                and url.lower().split("?")[0].endswith((".jpg", ".jpeg", ".png", ".webp"))
-                and url not in seen
-            ):
-                images.append(url)
-                seen.add(url)
-            if len(images) >= limit:
-                break
-        return images
-    except Exception:
-        return []
-
-
-def get_destination_video_ids(query, limit=3):
-    """Find YouTube video IDs for a destination; returns [] if YouTube blocks search."""
-    try:
-        response = requests.get(
-            "https://www.youtube.com/results",
-            params={"search_query": f"{query} travel guide tourism"},
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36"
-                )
-            },
-            timeout=12,
-        )
-        response.raise_for_status()
-        ids = re.findall(r'"videoId":"([A-Za-z0-9_-]{11})"', response.text)
-        unique_ids = list(dict.fromkeys(ids))
-        return unique_ids[:limit]
-    except Exception:
-        return []
-
-
 def get_destination_image(query):
     """Get a destination image from Wikimedia Commons; no API key required."""
     import requests
@@ -1285,60 +1222,6 @@ if "last_result" in st.session_state:
     st.markdown("## 🗺️ Your Travel Plan")
     final_response = extract_final_response(result)
     st.markdown(final_response)
-
-    # Destination media is intentionally displayed after the complete itinerary.
-    target_city = (
-        (st.session_state.get("preset_destination") if st.session_state.get("trip_start_from_inspiration") else "")
-        or destination.get("city")
-        or destination.get("specific_location")
-        or ""
-    ).strip()
-    if target_city:
-        st.divider()
-        st.markdown(f"## 📸 Explore {target_city}")
-        st.caption("Photos and travel videos related to your destination.")
-
-        with st.spinner(f"Finding photos of {target_city}..."):
-            destination_photos = get_destination_images(
-                target_city + " India travel destination",
-                limit=8,
-            )
-
-        if destination_photos:
-            photo_columns = st.columns(4)
-            for index, photo_url in enumerate(destination_photos):
-                with photo_columns[index % 4]:
-                    st.image(
-                        photo_url,
-                        caption=f"{target_city} — photo {index + 1}",
-                        use_container_width=True,
-                    )
-        else:
-            st.info("Destination photos are temporarily unavailable.")
-
-        st.markdown(f"### 🎬 Travel videos about {target_city}")
-        with st.spinner("Finding destination videos..."):
-            video_ids = get_destination_video_ids(target_city, limit=3)
-
-        if video_ids:
-            video_columns = st.columns(min(2, len(video_ids)))
-            for index, video_id in enumerate(video_ids):
-                with video_columns[index % len(video_columns)]:
-                    st.components.v1.iframe(
-                        f"https://www.youtube-nocookie.com/embed/{video_id}",
-                        height=280,
-                        scrolling=False,
-                    )
-        else:
-            st.info(
-                "Videos could not be embedded automatically right now. "
-                "You can still browse destination videos on YouTube."
-            )
-            search_query = requests.utils.quote(f"{target_city} travel guide tourism")
-            st.markdown(
-                f"[Search YouTube for {target_city} travel videos]"
-                f"(https://www.youtube.com/results?search_query={search_query})"
-            )
 
     with st.expander("🔎 View research results"):
         flight_results = result.get("flight_results", "")
