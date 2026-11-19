@@ -914,29 +914,34 @@ st.info(
 # TRAVEL PLANNING FORM
 # ============================================================
 
-with st.form("travel_planning_form"):
-    st.markdown(
-        '<div class="section-title">'
-        '📍 Journey Details'
-        '</div>',
-        unsafe_allow_html=True,
+st.markdown(
+    '<div class="section-title">'
+    '📍 Journey Details'
+    '</div>',
+    unsafe_allow_html=True,
+)
+
+# IMPORTANT: Keep cascading location dropdowns OUTSIDE the form.
+# Streamlit forms do not rerun when a user changes a dropdown; they only
+# send updated values on submit. Outside the form, changing a state reruns
+# the app immediately and refreshes the city options for that state.
+origin_column, destination_column = st.columns(2)
+
+with origin_column:
+    origin = location_selector(
+        "origin",
+        "Starting Point — From",
     )
 
-    origin_column, destination_column = st.columns(2)
+with destination_column:
+    destination = location_selector(
+        "destination",
+        "Destination — To",
+    )
 
-    with origin_column:
-        origin = location_selector(
-            "origin",
-            "Starting Point — From",
-        )
+st.divider()
 
-    with destination_column:
-        destination = location_selector(
-            "destination",
-            "Destination — To",
-        )
-
-    st.divider()
+with st.form("travel_planning_form"):
     st.markdown(
         '<div class="section-title">'
         '🧳 Trip Preferences'
