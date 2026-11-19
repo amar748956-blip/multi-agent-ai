@@ -15,3 +15,4 @@ supabase
 geopy
 country-state-city
 langgraph-checkpoint-postgres
+country_state_city
