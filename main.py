@@ -26,7 +26,6 @@ from langchain_groq import ChatGroq
 
 from tools.tavily_tool import tavily_search
 from tools.flight_tool import search_flights
-from tools.train_tool import search_trains
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -42,7 +41,6 @@ class TravelState(TypedDict):
     messages: Annotated[list[AnyMessage], operator.add]
     user_query: str
     flight_results: str
-    train_results: str
     hotel_results: str
     itinerary: str
     llm_calls: int
@@ -61,27 +59,6 @@ def flight_agent(state: TravelState):
             AIMessage(content=f"Flight results fetched")
         ],
         "llm_calls": state.get("llm_calls", 0) + 1
-    }
-
-
-# Train Agent
-def train_agent(state: TravelState):
-    query = state["user_query"]
-    # Station codes/date can be included in the query by the frontend.
-    import re
-    from_match = re.search(r"Origin station code:\s*([A-Z0-9]{2,5})", query, re.I)
-    to_match = re.search(r"Destination station code:\s*([A-Z0-9]{2,5})", query, re.I)
-    date_match = re.search(r"Departure date:\s*(\d{4}-\d{2}-\d{2})", query, re.I)
-    train_data = search_trains(
-        query,
-        from_match.group(1) if from_match else "",
-        to_match.group(1) if to_match else "",
-        date_match.group(1) if date_match else "",
-    )
-    return {
-        "train_results": train_data,
-        "messages": [AIMessage(content="Train information checked")],
-        "llm_calls": state.get("llm_calls", 0) + 1,
     }
 
 
@@ -113,9 +90,6 @@ def itinerary_agent(state: TravelState):
     Flight Results:
     {state['flight_results']}
 
-    Train Results:
-    {state.get('train_results', "Not checked")}
-
     Hotel Results:
     {state['hotel_results']}
     """
@@ -143,9 +117,6 @@ def final_agent(state: TravelState):
     Flights:
     {state['flight_results']}
 
-    Trains:
-    {state.get('train_results', "Not checked")}
-
     Hotels:
     {state['hotel_results']}
 
@@ -167,14 +138,12 @@ def final_agent(state: TravelState):
 graph = StateGraph(TravelState)
 
 graph.add_node("flight_agent", flight_agent)
-graph.add_node("train_agent", train_agent)
 graph.add_node("hotel_agent", hotel_agent)
 graph.add_node("itinerary_agent", itinerary_agent)
 graph.add_node("final_agent", final_agent)
 
 graph.add_edge(START, "flight_agent")
-graph.add_edge("flight_agent", "train_agent")
-graph.add_edge("train_agent", "hotel_agent")
+graph.add_edge("flight_agent", "hotel_agent")
 graph.add_edge("hotel_agent", "itinerary_agent")
 graph.add_edge("itinerary_agent", "final_agent")
 graph.add_edge("final_agent", END)
@@ -213,7 +182,6 @@ if __name__ == "__main__":
             ],
             "user_query": user_input,
             "flight_results": "",
-            "train_results": "",
             "hotel_results": "",
             "itinerary": "",
             "llm_calls": 0

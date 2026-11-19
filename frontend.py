@@ -4,6 +4,7 @@ import traceback
 import re
 import html
 import unicodedata
+import random
 
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut
@@ -76,6 +77,7 @@ st.markdown(
     .login-title { text-align:center; font-size:36px; font-weight:800; }
     .login-subtitle { text-align:center; opacity:.8; margin-bottom:22px; }
     .destination-card { padding: 12px; border:1px solid var(--border-color, rgba(128,128,128,.3)); border-radius:14px; }
+    [data-testid="stImage"] img { height: 220px; width: 100%; object-fit: cover; border-radius: 12px; }
     div[data-baseweb="input"] > div, div[data-baseweb="textarea"] > div,
     div[data-baseweb="select"] > div { border-radius:9px; }
     div.stButton > button, div.stFormSubmitButton > button {
@@ -440,10 +442,21 @@ def location_selector(prefix, heading):
 
             if cities:
                 city_options = ["Select a city"] + cities
+                preset_destination = (
+                    st.session_state.get("preset_destination", "")
+                    if prefix == "destination" else ""
+                )
+                preset_match = next(
+                    (city for city in cities if city.casefold() == preset_destination.casefold()),
+                    None,
+                )
+                default_city_index = (
+                    city_options.index(preset_match) if preset_match else 0
+                )
                 city_name = st.selectbox(
                     "City",
                     options=city_options,
-                    index=0,
+                    index=default_city_index,
                     key=f"{prefix}_city_{country_code}_{state_identifier}",
                     help="Choose a city from the selected state.",
                 )
@@ -490,15 +503,17 @@ def location_selector(prefix, heading):
         key=f"{prefix}_location_type",
     )
 
-    preset_dest = st.session_state.get("preset_destination", "")
-    specific_location = st.text_input(
-        "Specific place name (optional)",
-        placeholder=(
-            "e.g. Dewas Railway Station or "
-            "Sanwariya Seth Temple"
-        ),
-        key=f"{prefix}_specific_location",
-    )
+    # Ask for a specific place name only when that location type is selected.
+    specific_location = ""
+    if location_type == "Specific place":
+        specific_location = st.text_input(
+            "Specific place name",
+            placeholder="e.g. Dewas Railway Station or Sanwariya Seth Temple",
+            key=f"{prefix}_specific_location",
+        )
+    else:
+        # Avoid carrying an old specific-place value into a city/airport/station query.
+        st.session_state.pop(f"{prefix}_specific_location", None)
 
     return {
         "country": country_name.strip(),
@@ -688,21 +703,30 @@ def extract_final_response(result):
 # ============================================================
 # MINIMAL SIDEBAR — ACCOUNT AND CONVERSATION CONTROLS ONLY
 # ============================================================
+
 with st.sidebar:
     st.markdown("## 🌍 Wanderverse")
     st.caption(f"Signed in as {st.session_state.user_email}")
-    if st.button("🚪 Logout", key="logout_button"):
+
+    # Logout button
+    if st.button("🚪 Logout", key="sidebar_logout_unique"):
         try:
             supabase.auth.sign_out()
         except Exception:
             pass
+
         st.session_state.logged_in = False
         st.session_state.user_email = ""
         st.session_state.pop("last_result", None)
         st.session_state.pop("thread_id", None)
+        st.session_state.pop("preset_destination", None)
         st.rerun()
+
+    # Initialize a new conversation ID if missing
     if "thread_id" not in st.session_state:
         st.session_state.thread_id = str(uuid.uuid4())
+
+    # Start a new trip
     if st.button("🔄 Start new trip", key="new_conversation_button"):
         st.session_state.thread_id = str(uuid.uuid4())
         st.session_state.pop("last_result", None)
@@ -711,6 +735,69 @@ with st.sidebar:
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def get_destination_images(query, limit=8):
+    """Return several relevant destination images from Wikimedia Commons."""
+    try:
+        response = requests.get(
+            "https://commons.wikimedia.org/w/api.php",
+            params={
+                "action": "query",
+                "format": "json",
+                "generator": "search",
+                "gsrsearch": f"filetype:bitmap {query}",
+                "gsrnamespace": 6,
+                "gsrlimit": min(max(int(limit) * 2, 8), 20),
+                "prop": "imageinfo",
+                "iiprop": "url",
+                "iiurlwidth": 900,
+            },
+            headers={"User-Agent": "WanderverseTravelPlanner/1.0"},
+            timeout=12,
+        )
+        response.raise_for_status()
+        pages = list(response.json().get("query", {}).get("pages", {}).values())
+        random.shuffle(pages)
+        images = []
+        seen = set()
+        for page in pages:
+            info = (page.get("imageinfo") or [{}])[0]
+            url = info.get("thumburl") or info.get("url")
+            if (
+                url
+                and url.lower().split("?")[0].endswith((".jpg", ".jpeg", ".png", ".webp"))
+                and url not in seen
+            ):
+                images.append(url)
+                seen.add(url)
+            if len(images) >= limit:
+                break
+        return images
+    except Exception:
+        return []
+
+
+def get_destination_video_ids(query, limit=3):
+    """Find YouTube video IDs for a destination; returns [] if YouTube blocks search."""
+    try:
+        response = requests.get(
+            "https://www.youtube.com/results",
+            params={"search_query": f"{query} travel guide tourism"},
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36"
+                )
+            },
+            timeout=12,
+        )
+        response.raise_for_status()
+        ids = re.findall(r'"videoId":"([A-Za-z0-9_-]{11})"', response.text)
+        unique_ids = list(dict.fromkeys(ids))
+        return unique_ids[:limit]
+    except Exception:
+        return []
+
+
 def get_destination_image(query):
     """Get a destination image from Wikimedia Commons; no API key required."""
     import requests
@@ -725,13 +812,15 @@ def get_destination_image(query):
         timeout=10,
     )
     response.raise_for_status()
-    pages = response.json().get("query", {}).get("pages", {})
-    for page in pages.values():
+    pages = list(response.json().get("query", {}).get("pages", {}).values())
+    random.shuffle(pages)
+    valid_urls = []
+    for page in pages:
         info = (page.get("imageinfo") or [{}])[0]
         url = info.get("thumburl") or info.get("url")
         if url and url.lower().split("?")[0].endswith((".jpg", ".jpeg", ".png", ".webp")):
-            return url
-    return None
+            valid_urls.append(url)
+    return random.choice(valid_urls) if valid_urls else None
 
 
 # ============================================================
@@ -754,9 +843,15 @@ st.markdown(
 )
 
 st.markdown(
-    "Choose an inspiration to start, then enter your origin and destination. "
-    "You can change either location before generating the plan."
+    "Choose a travel style or destination for inspiration, then select your starting point "
+    "and destination below to generate a personalized plan."
 )
+if st.session_state.get("trip_start_from_inspiration"):
+    selected_inspiration = st.session_state.get("preset_destination", "")
+    st.info(
+        f"You chose {selected_inspiration}. Now select your starting point under "
+        "'Starting Point — From' and confirm the destination below. Then generate your plan."
+    )
 st.markdown("### ✨ Find your kind of getaway")
 preset_columns = st.columns(4)
 presets = [
@@ -774,27 +869,50 @@ for i, (label, style_value, dest_value) in enumerate(presets):
         if st.button(label, key=f"preset_{i}", use_container_width=True):
             st.session_state["preset_destination"] = dest_value
             st.session_state["preset_style"] = style_value
+            st.session_state["trip_start_from_inspiration"] = True
             st.rerun()
 
-st.markdown("### 🖼️ Destination inspiration")
+inspiration_heading, shuffle_column = st.columns([5, 1])
+with inspiration_heading:
+    st.markdown("### 🖼️ Destination inspiration")
+with shuffle_column:
+    if st.button("🔄 More places", key="shuffle_inspiration"):
+        st.session_state.pop("inspiration_places", None)
+        st.rerun()
+
+# Pick a new set when this browser session starts; normal widget reruns keep the same set.
+if "inspiration_places" not in st.session_state:
+    all_suggestions = [
+        ("Jaipur", "Hawa Mahal Jaipur"),
+        ("Manali", "Manali Himachal Pradesh"),
+        ("Varanasi", "Varanasi ghats"),
+        ("Goa", "Goa beach India"),
+        ("Udaipur", "Udaipur City Palace India"),
+        ("Rishikesh", "Rishikesh Ganges India"),
+        ("Shimla", "Shimla Ridge India"),
+        ("Mysuru", "Mysore Palace India"),
+        ("Amritsar", "Golden Temple Amritsar"),
+        ("Kochi", "Fort Kochi Kerala"),
+        ("Pachmarhi", "Pachmarhi Madhya Pradesh"),
+        ("Agra", "Taj Mahal Agra"),
+    ]
+    st.session_state["inspiration_places"] = random.sample(all_suggestions, 4)
+
 image_columns = st.columns(4)
-suggested_places = [
-    ("Jaipur", "Hawa Mahal Jaipur"),
-    ("Manali", "Manali Himachal Pradesh"),
-    ("Varanasi", "Varanasi ghats"),
-    ("Goa", "Goa beach India"),
-]
-for i, (place_name, image_query) in enumerate(suggested_places):
+for i, (place_name, image_query) in enumerate(st.session_state["inspiration_places"]):
     with image_columns[i]:
         st.markdown(f"**{place_name}**")
         try:
             image_url = get_destination_image(image_query)
             if image_url:
                 st.image(image_url, use_container_width=True)
+            else:
+                st.caption("Image unavailable")
         except Exception:
             st.caption("Image unavailable")
         if st.button(f"Plan a trip to {place_name}", key=f"choose_{i}", use_container_width=True):
             st.session_state["preset_destination"] = place_name
+            st.session_state["trip_start_from_inspiration"] = True
             st.rerun()
 
 
@@ -849,17 +967,12 @@ with st.form("travel_planning_form"):
             key="return_date",
         )
 
+    duration = max(1, (return_date - departure_date).days + 1)
+    st.caption(f"Trip duration: {duration} day(s), calculated from your dates.")
+
     col1, col2 = st.columns(2)
 
     with col1:
-        duration = st.number_input(
-            "Trip duration (days)",
-            min_value=1,
-            max_value=60,
-            value=3,
-            step=1,
-        )
-
         budget = st.selectbox(
             "Total budget (INR)",
             options=[
@@ -920,21 +1033,6 @@ with st.form("travel_planning_form"):
         default=["History", "Culture"],
     )
 
-    st.markdown("#### 🚆 Optional train lookup")
-    train_col1, train_col2 = st.columns(2)
-    with train_col1:
-        origin_station_code = st.text_input(
-            "Origin railway station code (optional)",
-            placeholder="e.g. INDB",
-            help="Use a verified station code; leave blank if unknown.",
-        )
-    with train_col2:
-        destination_station_code = st.text_input(
-            "Destination railway station code (optional)",
-            placeholder="e.g. JP",
-            help="Use a verified station code; leave blank if unknown.",
-        )
-
     additional_notes = st.text_area(
         "Additional requirements (optional)",
         placeholder=(
@@ -961,26 +1059,34 @@ if submitted:
 
     if not origin.get("city") and not origin.get("specific_location"):
         st.error("Please enter a starting city or specific location.")
+        st.stop()
 
     elif (
         not destination.get("city")
         and not destination.get("specific_location")
     ):
         st.error("Please enter a destination city or specific location.")
+        st.stop()
 
     else:
         with st.spinner("Checking that the entered locations exist..."):
             origin_valid = validate_location(origin)
             destination_valid = validate_location(destination)
 
+        # Continue if the external validation service is unavailable.
         if origin_valid is None or destination_valid is None:
-            st.error(
+            st.warning(
                 "Location validation is temporarily unavailable. "
-                "Please check your internet connection and try again. "
-                "Your trip has not been generated."
+                "Continuing with the locations selected in your form."
             )
-            st.stop()
 
+            if origin_valid is None:
+                origin_valid = True
+
+            if destination_valid is None:
+                destination_valid = True
+
+        # Stop if the validation service explicitly rejects a location.
         if not origin_valid:
             st.error(
                 "❌ Invalid starting location. Please check the city/place, "
@@ -997,11 +1103,13 @@ if submitted:
 
         origin_text = format_location(origin)
         destination_text = format_location(destination)
+
         interests_text = (
             ", ".join(interests) if interests else "General sightseeing"
         )
 
         user_query = f"""
+
 Plan a trip using these details.
 
 Starting location: {origin_text}
@@ -1010,8 +1118,6 @@ Departure date: {departure_date}
 Return date: {return_date}
 Duration: {duration} days
 Number of travellers: {travellers}
-Origin station code: {origin_station_code.strip().upper() or "not supplied"}
-Destination station code: {destination_station_code.strip().upper() or "not supplied"}
 Total budget: {budget}
 Travel style: {travel_style}
 Interests: {interests_text}
@@ -1032,7 +1138,6 @@ Instructions:
 11. Do not invent live prices or availability.
 12. Use the exact departure and return dates; make the itinerary fit those dates.
 13. Suggest the best time of day and season for attractions. Clearly label general advice separately from verified opening hours.
-14. Include train information only when returned by the configured train API; otherwise state that it could not be verified.
 15. Recommend only transport facilities that actually serve the selected origin/destination.
 """
 
@@ -1040,7 +1145,6 @@ Instructions:
             "messages": [HumanMessage(content=user_query)],
             "user_query": user_query,
             "flight_results": "",
-            "train_results": "",
             "hotel_results": "",
             "itinerary": "",
             "llm_calls": 0,
@@ -1082,26 +1186,65 @@ if "last_result" in st.session_state:
 
     st.divider()
     st.markdown("## 🗺️ Your Travel Plan")
-    target_city = (st.session_state.get("preset_destination") or destination.get("city") or destination.get("specific_location") or "").strip()
-    if target_city:
-        st.markdown(f"### 📸 Explore {target_city}")
-        media_col1, media_col2 = st.columns(2)
-        with media_col1:
-            try:
-                destination_photo = get_destination_image(target_city + " travel destination")
-                if destination_photo:
-                    st.image(destination_photo, caption=f"{target_city} — destination photo", use_container_width=True)
-            except Exception:
-                st.caption("Destination photo could not be loaded.")
-        with media_col2:
-            st.markdown(f"**🎬 Videos about {target_city}**")
-            st.markdown(f"[Watch destination videos on YouTube](https://www.youtube.com/results?search_query={target_city.replace(' ', '+')}+travel+guide)")
     final_response = extract_final_response(result)
     st.markdown(final_response)
 
+    # Destination media is intentionally displayed after the complete itinerary.
+    target_city = (
+        (st.session_state.get("preset_destination") if st.session_state.get("trip_start_from_inspiration") else "")
+        or destination.get("city")
+        or destination.get("specific_location")
+        or ""
+    ).strip()
+    if target_city:
+        st.divider()
+        st.markdown(f"## 📸 Explore {target_city}")
+        st.caption("Photos and travel videos related to your destination.")
+
+        with st.spinner(f"Finding photos of {target_city}..."):
+            destination_photos = get_destination_images(
+                target_city + " India travel destination",
+                limit=8,
+            )
+
+        if destination_photos:
+            photo_columns = st.columns(4)
+            for index, photo_url in enumerate(destination_photos):
+                with photo_columns[index % 4]:
+                    st.image(
+                        photo_url,
+                        caption=f"{target_city} — photo {index + 1}",
+                        use_container_width=True,
+                    )
+        else:
+            st.info("Destination photos are temporarily unavailable.")
+
+        st.markdown(f"### 🎬 Travel videos about {target_city}")
+        with st.spinner("Finding destination videos..."):
+            video_ids = get_destination_video_ids(target_city, limit=3)
+
+        if video_ids:
+            video_columns = st.columns(min(2, len(video_ids)))
+            for index, video_id in enumerate(video_ids):
+                with video_columns[index % len(video_columns)]:
+                    st.components.v1.iframe(
+                        f"https://www.youtube-nocookie.com/embed/{video_id}",
+                        height=280,
+                        scrolling=False,
+                    )
+        else:
+            st.info(
+                "Videos could not be embedded automatically right now. "
+                "You can still browse destination videos on YouTube."
+            )
+            search_query = requests.utils.quote(f"{target_city} travel guide tourism")
+            st.markdown(
+                f"[Search YouTube for {target_city} travel videos]"
+                f"(https://www.youtube.com/results?search_query={search_query})"
+            )
+
     with st.expander("🔎 View research results"):
         flight_results = result.get("flight_results", "")
-        train_results = result.get("train_results", "")
         hotel_results = result.get("hotel_results", "")
         itinerary = result.get("itinerary", "")
 
@@ -1111,9 +1254,6 @@ if "last_result" in st.session_state:
             if flight_results
             else "No flight or transport results were returned."
         )
-
-        st.markdown("### 🚆 Train Search Results")
-        st.write(train_results if train_results else "Train information was not returned.")
 
         st.markdown("### 🏨 Hotel Search Results")
         st.write(
