@@ -688,21 +688,30 @@ def extract_final_response(result):
 # ============================================================
 # MINIMAL SIDEBAR — ACCOUNT AND CONVERSATION CONTROLS ONLY
 # ============================================================
+
 with st.sidebar:
     st.markdown("## 🌍 Wanderverse")
     st.caption(f"Signed in as {st.session_state.user_email}")
-    if st.button("🚪 Logout", key="logout_button"):
+
+    # Logout button
+    if st.button("🚪 Logout", key="sidebar_logout_unique"):
         try:
             supabase.auth.sign_out()
         except Exception:
             pass
+
         st.session_state.logged_in = False
         st.session_state.user_email = ""
         st.session_state.pop("last_result", None)
         st.session_state.pop("thread_id", None)
+        st.session_state.pop("preset_destination", None)
         st.rerun()
+
+    # Initialize a new conversation ID if missing
     if "thread_id" not in st.session_state:
         st.session_state.thread_id = str(uuid.uuid4())
+
+    # Start a new trip
     if st.button("🔄 Start new trip", key="new_conversation_button"):
         st.session_state.thread_id = str(uuid.uuid4())
         st.session_state.pop("last_result", None)
