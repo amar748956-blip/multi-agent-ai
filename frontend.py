@@ -982,13 +982,19 @@ if submitted:
             origin_valid = validate_location(origin)
             destination_valid = validate_location(destination)
 
-        if origin_valid is None or destination_valid is None:
-            st.error(
-                "Location validation is temporarily unavailable. "
-                "Please check your internet connection and try again. "
-                "Your trip has not been generated."
-            )
-            st.stop()
+       if origin_valid is None or destination_valid is None:
+    st.warning(
+        "Location validation is temporarily unavailable. "
+        "Continuing with the locations selected in your form."
+    )
+
+    # Trust the selected dropdown location when the
+    # external validation service is unavailable.
+    if origin_valid is None:
+        origin_valid = True
+
+    if destination_valid is None:
+        destination_valid = True
 
         if not origin_valid:
             st.error(
