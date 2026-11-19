@@ -429,9 +429,13 @@ with st.sidebar:
 # ============================================================
 
 def get_attribute(item, *attribute_names):
-    """Return the first available non-empty attribute."""
+    """Read the first available field from a model or dictionary."""
     for attribute in attribute_names:
-        value = getattr(item, attribute, None)
+        value = None
+        if isinstance(item, dict):
+            value = item.get(attribute)
+        else:
+            value = getattr(item, attribute, None)
         if value is not None and str(value).strip():
             return str(value).strip()
     return None
@@ -439,78 +443,69 @@ def get_attribute(item, *attribute_names):
 
 @st.cache_data(show_spinner=False)
 def get_countries():
-    """Return country names and identifiers."""
+    """Return sorted (country name, country code) pairs."""
     try:
-        countries = Country.get_countries()
+        countries = Country.get_countries() or []
         results = []
-
         for item in countries:
-            name = get_attribute(item, "name", "country_name")
-            code = get_attribute(item, "iso2", "iso2_code", "code")
-
+            name = get_attribute(item, "name", "country_name", "country")
+            code = get_attribute(
+                item, "iso2", "iso_code", "iso2_code", "iso2Code",
+                "country_code", "code", "iso3", "id"
+            )
             if name:
                 results.append((name, code or name))
-
-        return sorted(results, key=lambda item: item[0].lower())
+        # Remove duplicate country names while preserving a usable code.
+        unique = {}
+        for name, code in results:
+            unique.setdefault(name, code)
+        return sorted(unique.items(), key=lambda pair: pair[0].casefold())
     except Exception:
         return []
 
 
 @st.cache_data(show_spinner=False)
 def get_states(country_code):
-    """Return state names and usable identifiers."""
+    """Return sorted (state name, state identifier) pairs."""
     try:
-        states = State.get_states_of_country(country_code)
+        states = State.get_states_of_country(country_code) or []
         results = []
-
         for item in states:
-            name = get_attribute(item, "name", "state_name")
+            name = get_attribute(item, "name", "state_name", "region", "state")
             code = get_attribute(
-                item,
-                "state_code",
-                "iso2",
-                "iso3166_2",
-                "code",
+                item, "state_code", "iso_code", "iso2", "iso3166_2",
+                "stateCode", "code", "id"
             )
-
             if name:
                 results.append((name, code or name))
-
-        unique_results = {name: code for name, code in results}
-
-        return sorted(
-            list(unique_results.items()),
-            key=lambda item: item[0].lower(),
-        )
+        unique = {}
+        for name, code in results:
+            unique.setdefault(name, code)
+        return sorted(unique.items(), key=lambda pair: pair[0].casefold())
     except Exception:
         return []
 
 
 @st.cache_data(show_spinner=False)
 def get_cities(country_code, state_identifier, state_name):
-    """Fetch cities using a state code or state name."""
+    """Return city names, trying state code and state name variants."""
     identifiers = []
-
-    if state_identifier:
-        identifiers.append(state_identifier)
-    if state_name and state_name not in identifiers:
-        identifiers.append(state_name)
+    for identifier in (state_identifier, state_name):
+        if identifier and identifier not in identifiers:
+            identifiers.append(identifier)
 
     for identifier in identifiers:
         try:
-            cities = City.get_cities_of_state(country_code, identifier)
-            city_names = set()
-
+            cities = City.get_cities_of_state(country_code, identifier) or []
+            names = set()
             for item in cities:
-                name = get_attribute(item, "name", "city_name")
+                name = get_attribute(item, "name", "city_name", "city")
                 if name:
-                    city_names.add(name)
-
-            if city_names:
-                return sorted(city_names, key=str.lower)
+                    names.add(name)
+            if names:
+                return sorted(names, key=str.casefold)
         except Exception:
             continue
-
     return []
 
 
@@ -570,7 +565,7 @@ def location_selector(prefix, heading):
                 "State / region",
                 options=state_labels,
                 index=state_labels.index(default_state),
-                key=f"{prefix}_state",
+                key=f"{prefix}_state_{country_code}",
             )
             state_identifier = state_codes[state_name]
             cities = get_cities(
@@ -584,7 +579,9 @@ def location_selector(prefix, heading):
                 city_name = st.selectbox(
                     "City",
                     options=city_options,
-                    key=f"{prefix}_city",
+                    index=0,
+                    key=f"{prefix}_city_{country_code}_{state_identifier}",
+                    help="Choose a city from the selected state.",
                 )
                 if city_name == "Select a city":
                     city_name = ""
@@ -595,7 +592,7 @@ def location_selector(prefix, heading):
                 )
                 city_name = st.text_input(
                     "Enter city",
-                    key=f"{prefix}_city_manual",
+                    key=f"{prefix}_city_manual_{country_code}_{state_name}",
                 )
         else:
             st.info(
@@ -604,7 +601,7 @@ def location_selector(prefix, heading):
             )
             state_name = st.text_input(
                 "State / region",
-                key=f"{prefix}_state_manual",
+                key=f"{prefix}_state_manual_{country_code}",
             )
             city_name = st.text_input(
                 "City",
