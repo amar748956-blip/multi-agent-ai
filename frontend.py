@@ -66,207 +66,26 @@ if "user_email" not in st.session_state:
 st.markdown(
     """
     <style>
-    .stApp {
-        background: linear-gradient(
-            135deg,
-            #0f172a 0%,
-            #172554 50%,
-            #1e3a5f 100%
-        );
-        color: #f1f5f9;
+    :root { color-scheme: light dark; }
+    .stApp { background: var(--background-color); color: var(--text-color); }
+    [data-testid="stMain"] { background: transparent; }
+    h1, h2, h3, h4 { color: var(--text-color); }
+    .main-title { font-size: clamp(28px, 4vw, 44px); font-weight: 800; text-align:center; margin-bottom: 6px; }
+    .subtitle { text-align:center; font-size:17px; opacity:.82; margin-bottom:24px; }
+    .section-title { font-size:22px; font-weight:750; margin:12px 0; }
+    .login-title { text-align:center; font-size:36px; font-weight:800; }
+    .login-subtitle { text-align:center; opacity:.8; margin-bottom:22px; }
+    .destination-card { padding: 12px; border:1px solid var(--border-color, rgba(128,128,128,.3)); border-radius:14px; }
+    div[data-baseweb="input"] > div, div[data-baseweb="textarea"] > div,
+    div[data-baseweb="select"] > div { border-radius:9px; }
+    div.stButton > button, div.stFormSubmitButton > button {
+        border-radius:10px; font-weight:700; min-height:42px;
     }
-
-    [data-testid="stMain"] {
-        background: transparent;
+    [data-testid="stForm"], [data-testid="stExpander"] {
+        border-radius:14px;
     }
-
-    h1, h2, h3, h4 {
-        color: #bfdbfe;
-    }
-
-    .main-title {
-        font-size: 42px;
-        font-weight: 800;
-        color: #93c5fd;
-        text-align: center;
-        margin-bottom: 5px;
-    }
-
-    .subtitle {
-        text-align: center;
-        font-size: 17px;
-        color: #cbd5e1;
-        margin-bottom: 30px;
-    }
-
-    .section-title {
-        font-size: 22px;
-        font-weight: 700;
-        color: #bfdbfe;
-        margin-top: 12px;
-        margin-bottom: 12px;
-    }
-
-    .login-title {
-        text-align: center;
-        font-size: 36px;
-        font-weight: bold;
-        color: #93c5fd;
-    }
-
-    .login-subtitle {
-        text-align: center;
-        color: #cbd5e1;
-        margin-bottom: 25px;
-    }
-
-    [data-testid="stSidebar"] {
-        background: linear-gradient(
-            180deg,
-            #111827 0%,
-            #1e293b 100%
-        );
-    }
-
-    [data-testid="stSidebar"] * {
-        color: #e2e8f0;
-    }
-
-    .stMarkdown,
-    .stMarkdown p,
-    label,
-    [data-testid="stCaptionContainer"] {
-        color: #e2e8f0;
-    }
-
-    div[data-baseweb="input"] > div,
-    div[data-baseweb="textarea"] > div {
-        background-color: #f1f5f9;
-        border-radius: 8px;
-        border: 1px solid #64748b;
-    }
-
-    div[data-baseweb="input"] input,
-    div[data-baseweb="textarea"] textarea {
-        color: #111827 !important;
-        background-color: transparent;
-    }
-
-    div[data-baseweb="select"] > div {
-        background: linear-gradient(
-            135deg,
-            #0f172a 0%,
-            #172554 50%,
-            #1e3a5f 100%
-        ) !important;
-        background-color: #172554 !important;
-        color: #f1f5f9 !important;
-        border: 1px solid #60a5fa !important;
-        border-radius: 8px !important;
-    }
-
-    div[data-baseweb="select"] input,
-    div[data-baseweb="select"] span {
-        color: #f1f5f9 !important;
-    }
-
-    div[data-baseweb="popover"],
-    div[data-baseweb="popover"] > div,
-    ul[data-baseweb="menu"] {
-        background: linear-gradient(
-            135deg,
-            #0f172a 0%,
-            #172554 50%,
-            #1e3a5f 100%
-        ) !important;
-        background-color: #172554 !important;
-    }
-
-    li[role="option"],
-    div[role="option"] {
-        background-color: transparent !important;
-        color: #f1f5f9 !important;
-    }
-
-    li[role="option"]:hover,
-    div[role="option"]:hover,
-    li[aria-selected="true"],
-    div[aria-selected="true"] {
-        background-color: #2563eb !important;
-        color: #ffffff !important;
-    }
-
-    div[data-baseweb="select"] svg {
-        fill: #f1f5f9 !important;
-        color: #f1f5f9 !important;
-    }
-
-    [data-baseweb="tag"] {
-        background-color: #2563eb !important;
-        color: #ffffff !important;
-    }
-
-    [data-baseweb="tag"] svg {
-        fill: #ffffff !important;
-    }
-
-    div.stButton > button,
-    div.stFormSubmitButton > button {
-        background: linear-gradient(90deg, #2563eb, #0891b2);
-        color: white;
-        border: none;
-        border-radius: 10px;
-        padding: 10px 20px;
-        font-weight: 700;
-        width: 100%;
-        transition: all 0.2s ease-in-out;
-    }
-
-    div.stButton > button:hover,
-    div.stFormSubmitButton > button:hover {
-        background: #1d4ed8;
-        color: white;
-        border: 1px solid #93c5fd;
-        transform: translateY(-1px);
-    }
-
-    [data-testid="stForm"] {
-        background: rgba(30, 41, 59, 0.65);
-        border: 1px solid #334155;
-        border-radius: 14px;
-        padding: 20px;
-    }
-
-    [data-testid="stExpander"] {
-        background: rgba(30, 41, 59, 0.75);
-        border: 1px solid #475569;
-        border-radius: 12px;
-    }
-
-    [data-testid="stAlert"] {
-        border-radius: 10px;
-    }
-
-    hr {
-        border-color: #475569;
-    }
-
-    a {
-        color: #7dd3fc !important;
-    }
-
-    ::-webkit-scrollbar {
-        width: 8px;
-    }
-
-    ::-webkit-scrollbar-track {
-        background: #0f172a;
-    }
-
-    ::-webkit-scrollbar-thumb {
-        background: #475569;
-        border-radius: 8px;
-    }
+    [data-testid="stSidebar"] { border-right:1px solid rgba(128,128,128,.2); }
+    a { text-underline-offset:3px; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -535,6 +354,33 @@ def get_cities(country_code, state_identifier, state_name):
 # LOCATION SELECTOR
 # ============================================================
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def get_verified_facility_types(city, state, country):
+    """Return facility types only if Nominatim finds a matching place."""
+    from urllib.parse import urlencode
+    import requests
+    candidates = [
+        ("Airport", "airport"),
+        ("Railway station", "railway station"),
+        ("Bus station", "bus station"),
+    ]
+    available = []
+    for label, term in candidates:
+        query = ", ".join(part for part in (term, city, state, country) if part)
+        try:
+            response = requests.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={"q": query, "format": "jsonv2", "limit": 1},
+                headers={"User-Agent": "WanderverseTravelPlanner/1.0 (location lookup)"},
+                timeout=6,
+            )
+            if response.ok and response.json():
+                available.append(label)
+        except requests.RequestException:
+            continue
+    return available
+
+
 def location_selector(prefix, heading):
     """Display country, state, city, and location type."""
     st.markdown(f"### {heading}")
@@ -577,11 +423,7 @@ def location_selector(prefix, heading):
         if states:
             state_labels = [name for name, code in states]
             state_codes = {name: code for name, code in states}
-            default_state = (
-                "Madhya Pradesh"
-                if "Madhya Pradesh" in state_labels
-                else state_labels[0]
-            )
+            default_state = state_labels[0]
 
             state_name = st.selectbox(
                 "State / region",
@@ -630,21 +472,25 @@ def location_selector(prefix, heading):
                 key=f"{prefix}_city_manual",
             )
 
+    # Only offer airport/station choices when a geocoder can find one nearby.
+    city_for_lookup = city_name.strip() if "city_name" in locals() else ""
+    facility_options = ["City centre", "Specific place"]
+    if city_for_lookup and country_name:
+        try:
+            facility_options += get_verified_facility_types(city_for_lookup, state_name, country_name)
+        except Exception:
+            pass
+    previous_type = st.session_state.get(f"{prefix}_location_type", "City centre")
+    if previous_type not in facility_options:
+        previous_type = "City centre"
     location_type = st.selectbox(
         "Location type",
-        options=[
-            "City centre",
-            "Airport",
-            "Railway station",
-            "Bus station",
-            "Hotel / accommodation area",
-            "Tourist attraction / landmark",
-            "Temple / religious place",
-            "Other location",
-        ],
+        options=list(dict.fromkeys(facility_options)),
+        index=list(dict.fromkeys(facility_options)).index(previous_type),
         key=f"{prefix}_location_type",
     )
 
+    preset_dest = st.session_state.get("preset_destination", "")
     specific_location = st.text_input(
         "Specific place name (optional)",
         placeholder=(
@@ -840,49 +686,52 @@ def extract_final_response(result):
 
 
 # ============================================================
-# SIDEBAR
+# MINIMAL SIDEBAR — ACCOUNT AND CONVERSATION CONTROLS ONLY
 # ============================================================
-
 with st.sidebar:
-    st.markdown("## 🌍 AI Travel Planner")
-    st.caption("Your AI-powered trip planning assistant")
-    st.divider()
-
-    st.markdown("### 🧩 Technology Stack")
-    st.markdown(
-        """
-        - **LangGraph** — agent workflow
-        - **Groq / LLM** — AI responses
-        - **PostgreSQL** — conversation checkpoints
-        - **Tavily** — web search
-        - **AviationStack** — flight data
-        - **Streamlit** — user interface
-        """
-    )
-
-    st.divider()
-    st.markdown("### ⚙️ Agent Pipeline")
-    st.markdown(
-        """
-        1. ✈️ Flight Agent
-        2. 🏨 Hotel Agent
-        3. 🗺️ Itinerary Agent
-        4. 📝 Final Agent
-        """
-    )
-
-    st.divider()
-
+    st.markdown("## 🌍 Wanderverse")
+    st.caption(f"Signed in as {st.session_state.user_email}")
+    if st.button("🚪 Logout", key="logout_button"):
+        try:
+            supabase.auth.sign_out()
+        except Exception:
+            pass
+        st.session_state.logged_in = False
+        st.session_state.user_email = ""
+        st.session_state.pop("last_result", None)
+        st.session_state.pop("thread_id", None)
+        st.rerun()
     if "thread_id" not in st.session_state:
         st.session_state.thread_id = str(uuid.uuid4())
-
-    st.caption("Conversation ID")
-    st.code(st.session_state.thread_id[:18] + "...")
-
-    if st.button("🔄 Start New Conversation"):
+    if st.button("🔄 Start new trip", key="new_conversation_button"):
         st.session_state.thread_id = str(uuid.uuid4())
         st.session_state.pop("last_result", None)
+        st.session_state.pop("preset_destination", None)
         st.rerun()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_destination_image(query):
+    """Get a destination image from Wikimedia Commons; no API key required."""
+    import requests
+    response = requests.get(
+        "https://commons.wikimedia.org/w/api.php",
+        params={
+            "action": "query", "generator": "search", "gsrsearch": query,
+            "gsrnamespace": 6, "gsrlimit": 8, "prop": "imageinfo",
+            "iiprop": "url", "iiurlwidth": 900, "format": "json",
+        },
+        headers={"User-Agent": "WanderverseTravelPlanner/1.0"},
+        timeout=10,
+    )
+    response.raise_for_status()
+    pages = response.json().get("query", {}).get("pages", {})
+    for page in pages.values():
+        info = (page.get("imageinfo") or [{}])[0]
+        url = info.get("thumburl") or info.get("url")
+        if url and url.lower().split("?")[0].endswith((".jpg", ".jpeg", ".png", ".webp")):
+            return url
+    return None
 
 
 # ============================================================
@@ -904,10 +753,49 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.info(
-    "Enter your trip details below. The AI agents will "
-    "gather available information and create a suggested plan."
+st.markdown(
+    "Choose an inspiration to start, then enter your origin and destination. "
+    "You can change either location before generating the plan."
 )
+st.markdown("### ✨ Find your kind of getaway")
+preset_columns = st.columns(4)
+presets = [
+    ("💑 Honeymoon", "Honeymoon", "Udaipur"),
+    ("👨‍👩‍👧 Family", "Family trip", "Jaipur"),
+    ("🎒 Solo travel", "Solo travel", "Rishikesh"),
+    ("🥾 Adventure", "Adventure", "Manali"),
+    ("🛕 Pilgrimage", "Religious / pilgrimage", "Varanasi"),
+    ("🌤️ Weekend", "Weekend getaway", "Pachmarhi"),
+    ("❄️ Winter", "Season-based winter trip", "Shimla"),
+    ("🌧️ Monsoon", "Season-based monsoon trip", "Lonavala"),
+]
+for i, (label, style_value, dest_value) in enumerate(presets):
+    with preset_columns[i % 4]:
+        if st.button(label, key=f"preset_{i}", use_container_width=True):
+            st.session_state["preset_destination"] = dest_value
+            st.session_state["preset_style"] = style_value
+            st.rerun()
+
+st.markdown("### 🖼️ Destination inspiration")
+image_columns = st.columns(4)
+suggested_places = [
+    ("Jaipur", "Hawa Mahal Jaipur"),
+    ("Manali", "Manali Himachal Pradesh"),
+    ("Varanasi", "Varanasi ghats"),
+    ("Goa", "Goa beach India"),
+]
+for i, (place_name, image_query) in enumerate(suggested_places):
+    with image_columns[i]:
+        st.markdown(f"**{place_name}**")
+        try:
+            image_url = get_destination_image(image_query)
+            if image_url:
+                st.image(image_url, use_container_width=True)
+        except Exception:
+            st.caption("Image unavailable")
+        if st.button(f"Plan a trip to {place_name}", key=f"choose_{i}", use_container_width=True):
+            st.session_state["preset_destination"] = place_name
+            st.rerun()
 
 
 # ============================================================
@@ -949,6 +837,18 @@ with st.form("travel_planning_form"):
         unsafe_allow_html=True,
     )
 
+    trip_dates_col1, trip_dates_col2 = st.columns(2)
+    with trip_dates_col1:
+        departure_date = st.date_input(
+            "Departure / start date",
+            key="departure_date",
+        )
+    with trip_dates_col2:
+        return_date = st.date_input(
+            "Return / end date",
+            key="return_date",
+        )
+
     col1, col2 = st.columns(2)
 
     with col1:
@@ -986,6 +886,11 @@ with st.form("travel_planning_form"):
                 "Religious / pilgrimage",
                 "Historical and cultural",
             ],
+            index=(
+                ["Budget-friendly", "Balanced", "Comfort / luxury", "Adventure", "Family trip", "Religious / pilgrimage", "Historical and cultural"].index(st.session_state["preset_style"])
+                if st.session_state.get("preset_style") in ["Budget-friendly", "Balanced", "Comfort / luxury", "Adventure", "Family trip", "Religious / pilgrimage", "Historical and cultural"]
+                else 1
+            ),
         )
 
         travellers = st.number_input(
@@ -1015,6 +920,21 @@ with st.form("travel_planning_form"):
         default=["History", "Culture"],
     )
 
+    st.markdown("#### 🚆 Optional train lookup")
+    train_col1, train_col2 = st.columns(2)
+    with train_col1:
+        origin_station_code = st.text_input(
+            "Origin railway station code (optional)",
+            placeholder="e.g. INDB",
+            help="Use a verified station code; leave blank if unknown.",
+        )
+    with train_col2:
+        destination_station_code = st.text_input(
+            "Destination railway station code (optional)",
+            placeholder="e.g. JP",
+            help="Use a verified station code; leave blank if unknown.",
+        )
+
     additional_notes = st.text_area(
         "Additional requirements (optional)",
         placeholder=(
@@ -1035,6 +955,10 @@ with st.form("travel_planning_form"):
 # ============================================================
 
 if submitted:
+    if return_date < departure_date:
+        st.error("Return date must be on or after the departure date.")
+        st.stop()
+
     if not origin.get("city") and not origin.get("specific_location"):
         st.error("Please enter a starting city or specific location.")
 
@@ -1082,8 +1006,12 @@ Plan a trip using these details.
 
 Starting location: {origin_text}
 Destination: {destination_text}
+Departure date: {departure_date}
+Return date: {return_date}
 Duration: {duration} days
 Number of travellers: {travellers}
+Origin station code: {origin_station_code.strip().upper() or "not supplied"}
+Destination station code: {destination_station_code.strip().upper() or "not supplied"}
 Total budget: {budget}
 Travel style: {travel_style}
 Interests: {interests_text}
@@ -1102,12 +1030,17 @@ Instructions:
 9. Identify information that could not be verified.
 10. Do not claim that tickets or hotels have been booked.
 11. Do not invent live prices or availability.
+12. Use the exact departure and return dates; make the itinerary fit those dates.
+13. Suggest the best time of day and season for attractions. Clearly label general advice separately from verified opening hours.
+14. Include train information only when returned by the configured train API; otherwise state that it could not be verified.
+15. Recommend only transport facilities that actually serve the selected origin/destination.
 """
 
         initial_state = {
             "messages": [HumanMessage(content=user_query)],
             "user_query": user_query,
             "flight_results": "",
+            "train_results": "",
             "hotel_results": "",
             "itinerary": "",
             "llm_calls": 0,
@@ -1149,11 +1082,26 @@ if "last_result" in st.session_state:
 
     st.divider()
     st.markdown("## 🗺️ Your Travel Plan")
+    target_city = (st.session_state.get("preset_destination") or destination.get("city") or destination.get("specific_location") or "").strip()
+    if target_city:
+        st.markdown(f"### 📸 Explore {target_city}")
+        media_col1, media_col2 = st.columns(2)
+        with media_col1:
+            try:
+                destination_photo = get_destination_image(target_city + " travel destination")
+                if destination_photo:
+                    st.image(destination_photo, caption=f"{target_city} — destination photo", use_container_width=True)
+            except Exception:
+                st.caption("Destination photo could not be loaded.")
+        with media_col2:
+            st.markdown(f"**🎬 Videos about {target_city}**")
+            st.markdown(f"[Watch destination videos on YouTube](https://www.youtube.com/results?search_query={target_city.replace(' ', '+')}+travel+guide)")
     final_response = extract_final_response(result)
     st.markdown(final_response)
 
     with st.expander("🔎 View research results"):
         flight_results = result.get("flight_results", "")
+        train_results = result.get("train_results", "")
         hotel_results = result.get("hotel_results", "")
         itinerary = result.get("itinerary", "")
 
@@ -1163,6 +1111,9 @@ if "last_result" in st.session_state:
             if flight_results
             else "No flight or transport results were returned."
         )
+
+        st.markdown("### 🚆 Train Search Results")
+        st.write(train_results if train_results else "Train information was not returned.")
 
         st.markdown("### 🏨 Hotel Search Results")
         st.write(
