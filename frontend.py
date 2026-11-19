@@ -2,6 +2,7 @@ import streamlit as st
 import uuid
 import traceback
 import re
+import html
 import unicodedata
 
 from geopy.geocoders import Nominatim
@@ -769,22 +770,47 @@ def format_location(location):
 # EXTRACT FINAL RESPONSE
 # ============================================================
 
+def clean_ai_output(content):
+    """Clean HTML-like tags from AI output before displaying it."""
+    if not isinstance(content, str):
+        content = str(content)
+
+    # Convert escaped HTML entities such as &lt;h2&gt; into readable text.
+    content = html.unescape(content)
+
+    # Turn common HTML layout tags into Markdown-friendly spacing/lists.
+    content = re.sub(r"(?i)<\s*br\s*/?\s*>", "\n", content)
+    content = re.sub(r"(?i)</\s*(p|div|h[1-6]|section|article)\s*>", "\n\n", content)
+    content = re.sub(r"(?i)<\s*(p|div|section|article|h[1-6])\b[^>]*>", "", content)
+    content = re.sub(r"(?i)<\s*li\b[^>]*>", "- ", content)
+    content = re.sub(r"(?i)</\s*li\s*>", "\n", content)
+    content = re.sub(r"(?i)</?\s*(ul|ol)\b[^>]*>", "\n", content)
+
+    # Remove any remaining HTML tags so they are not shown literally.
+    content = re.sub(r"<\s*/?\s*[a-zA-Z][^>]*>", "", content)
+
+    # Remove accidental Markdown code fences around the whole response.
+    content = re.sub(r"^\s*```(?:html|markdown|md|text)?\s*\n", "", content, flags=re.IGNORECASE)
+    content = re.sub(r"\n\s*```\s*$", "", content)
+
+    return content.strip()
+
+
 def extract_final_response(result):
-    """Find the latest non-empty AI response."""
+    """Find the latest non-empty AI response and clean its formatting."""
     messages = result.get("messages", [])
 
     for message in reversed(messages):
         if isinstance(message, AIMessage):
             content = message.content
-
-            if isinstance(content, str) and content.strip():
-                return content
             if content:
-                return str(content)
+                cleaned = clean_ai_output(content)
+                if cleaned:
+                    return cleaned
 
     itinerary = result.get("itinerary", "")
     if itinerary:
-        return itinerary
+        return clean_ai_output(itinerary)
 
     return (
         "The travel planner finished, but no final response "
