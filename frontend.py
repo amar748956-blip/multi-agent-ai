@@ -491,29 +491,43 @@ def get_states(country_code):
 
 @st.cache_data(show_spinner=False)
 def get_cities(country_code, state_identifier, state_name):
-    """Return only cities belonging to the selected state.
+    """Return cities for the selected state only, never a country-wide list."""
+    country_code = str(country_code or "").strip()
+    state_identifier = str(state_identifier or "").strip()
+    state_name = str(state_name or "").strip()
 
-    Try the state's short code first (as expected by country_state_city),
-    then try its full name for package/data-version compatibility.
-    """
-    identifiers = []
-    for identifier in (state_identifier, state_name):
-        if identifier and identifier not in identifiers:
-            identifiers.append(identifier)
-
-    for identifier in identifiers:
+    # This package expects the state's short code (e.g. MP for Madhya Pradesh).
+    # Try the identifier first, then the state name for compatibility.
+    for identifier in dict.fromkeys(x for x in (state_identifier, state_name) if x):
         try:
-            cities = City.get_cities_of_state(country_code, identifier) or []
-            names = set()
-            for item in cities:
-                name = get_attribute(item, "name", "city_name", "city")
-                if name:
-                    names.add(name)
-            if names:
-                return sorted(names, key=str.casefold)
+            records = City.get_cities_of_state(country_code, identifier) or []
         except Exception:
-            # Try the next identifier if this package version rejects it.
             continue
+
+        names = set()
+        for item in records:
+            name = get_attribute(item, "name", "city_name", "city")
+            if not name:
+                continue
+
+            # Some package/data versions expose state metadata on each city.
+            # When present, enforce an exact state match to avoid showing cities
+            # belonging to other states.
+            city_state_code = get_attribute(
+                item, "state_code", "stateCode", "state_iso2", "state_iso_code"
+            )
+            city_state_name = get_attribute(
+                item, "state_name", "state", "region", "stateName"
+            )
+            if city_state_code and state_identifier and city_state_code.casefold() != state_identifier.casefold():
+                continue
+            if city_state_name and state_name and city_state_name.casefold() != state_name.casefold():
+                continue
+            names.add(name)
+
+        if names:
+            return sorted(names, key=str.casefold)
+
     return []
 
 
