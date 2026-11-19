@@ -473,9 +473,11 @@ def get_states(country_code):
         results = []
         for item in states:
             name = get_attribute(item, "name", "state_name", "region", "state")
+            # The city database usually expects the state's short code
+            # (for example, MP), not its database ID.
             code = get_attribute(
-                item, "state_code", "iso_code", "iso2", "iso3166_2",
-                "stateCode", "code", "id"
+                item, "state_code", "stateCode", "iso2", "iso_code",
+                "iso3166_2", "code"
             )
             if name:
                 results.append((name, code or name))
@@ -489,7 +491,11 @@ def get_states(country_code):
 
 @st.cache_data(show_spinner=False)
 def get_cities(country_code, state_identifier, state_name):
-    """Return city names, trying state code and state name variants."""
+    """Return only cities belonging to the selected state.
+
+    Try the state's short code first (as expected by country_state_city),
+    then try its full name for package/data-version compatibility.
+    """
     identifiers = []
     for identifier in (state_identifier, state_name):
         if identifier and identifier not in identifiers:
@@ -506,6 +512,7 @@ def get_cities(country_code, state_identifier, state_name):
             if names:
                 return sorted(names, key=str.casefold)
         except Exception:
+            # Try the next identifier if this package version rejects it.
             continue
     return []
 
