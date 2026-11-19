@@ -970,32 +970,34 @@ if submitted:
 
     if not origin.get("city") and not origin.get("specific_location"):
         st.error("Please enter a starting city or specific location.")
+        st.stop()
 
     elif (
         not destination.get("city")
         and not destination.get("specific_location")
     ):
         st.error("Please enter a destination city or specific location.")
+        st.stop()
 
     else:
         with st.spinner("Checking that the entered locations exist..."):
             origin_valid = validate_location(origin)
             destination_valid = validate_location(destination)
 
-       if origin_valid is None or destination_valid is None:
-    st.warning(
-        "Location validation is temporarily unavailable. "
-        "Continuing with the locations selected in your form."
-    )
+        # Continue if the external validation service is unavailable.
+        if origin_valid is None or destination_valid is None:
+            st.warning(
+                "Location validation is temporarily unavailable. "
+                "Continuing with the locations selected in your form."
+            )
 
-    # Trust the selected dropdown location when the
-    # external validation service is unavailable.
-    if origin_valid is None:
-        origin_valid = True
+            if origin_valid is None:
+                origin_valid = True
 
-    if destination_valid is None:
-        destination_valid = True
+            if destination_valid is None:
+                destination_valid = True
 
+        # Stop if the validation service explicitly rejects a location.
         if not origin_valid:
             st.error(
                 "❌ Invalid starting location. Please check the city/place, "
@@ -1012,11 +1014,13 @@ if submitted:
 
         origin_text = format_location(origin)
         destination_text = format_location(destination)
+
         interests_text = (
             ", ".join(interests) if interests else "General sightseeing"
         )
 
         user_query = f"""
+
 Plan a trip using these details.
 
 Starting location: {origin_text}
