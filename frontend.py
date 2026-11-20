@@ -5,8 +5,6 @@ import re
 import html
 import unicodedata
 import random
-import os
-from urllib.parse import quote
 
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut
@@ -59,35 +57,49 @@ ACTIVITY_TABLE = "travel_activity"
 
 
 def _setting(name, default=""):
-    """Read Streamlit secrets first, then environment variables."""
+    """Read optional Streamlit secrets without crashing when absent."""
     try:
-        value = st.secrets.get(name, None)
-        if value not in (None, ""):
-            return str(value).strip()
+        return str(st.secrets.get(name, default) or default).strip()
     except Exception:
-        pass
-    return str(os.getenv(name, default) or default).strip()
+        return default
 
 
 def log_activity(payload):
-    """Persist activity to Supabase. Return the inserted row ID if available."""
+    """Persist activity and return its ID. Keep a safe diagnostic for troubleshooting."""
     try:
-        response = supabase.table(ACTIVITY_TABLE).insert(payload).select("id").execute()
+        # Selecting the inserted ID requires a SELECT RLS policy for the current user.
+        response = (
+            supabase.table(ACTIVITY_TABLE)
+            .insert(payload)
+            .select("id")
+            .execute()
+        )
         rows = getattr(response, "data", None) or []
+        st.session_state.pop("activity_log_error", None)
         return rows[0].get("id") if rows else None
-    except Exception:
-        # Logging failures must never prevent the travel planner from working.
+    except Exception as exc:
+        # Do not let activity logging failures break travel planning.
+        # The diagnostic excludes credentials and is shown only as a generic hint.
+        st.session_state["activity_log_error"] = f"{type(exc).__name__}: {str(exc)}"[:400]
         return None
 
 
 def update_activity(activity_id, payload):
-    """Update one activity record; do not expose database errors to users."""
+    """Update one activity record and report whether a row was returned/updated."""
     if not activity_id:
-        return
+        return False
     try:
-        supabase.table(ACTIVITY_TABLE).update(payload).eq("id", activity_id).execute()
-    except Exception:
-        pass
+        response = (
+            supabase.table(ACTIVITY_TABLE)
+            .update(payload)
+            .eq("id", activity_id)
+            .select("id")
+            .execute()
+        )
+        return bool(getattr(response, "data", None))
+    except Exception as exc:
+        st.session_state["activity_update_error"] = f"{type(exc).__name__}: {str(exc)}"[:400]
+        return False
 
 
 def is_admin_user():
@@ -100,51 +112,13 @@ def is_admin_user():
 
 
 def render_support_contact(activity_id=None, error_summary=None):
-    """Give users a direct support path without revealing stack traces."""
+    """Show only the support email address, as requested."""
     support_email = _setting("SUPPORT_EMAIL", "")
     st.markdown("### 🛟 Contact support")
-    st.write("If your plan failed, please contact support and include the reference below.")
-    if activity_id:
-        st.code(f"Reference ID: {activity_id}")
-    if error_summary:
-        st.caption(f"Summary: {error_summary[:240]}")
     if support_email:
-        subject = quote("Wanderverse support request")
-        body = quote(
-            f"Reference ID: {activity_id or 'not available'}\nWhat happened: "
-        )
-        st.markdown(
-            f"[✉️ Email Wanderverse Support](mailto:{support_email}"
-            f"?subject={subject}&body={body})"
-        )
-        st.caption(f"Support email: {support_email}")
+        st.markdown(f"✉️ **Email support:** [{support_email}](mailto:{support_email})")
     else:
-        st.info("Support contact is not configured yet. The administrator should set SUPPORT_EMAIL in Streamlit secrets.")
-    with st.form(f"support_form_{activity_id or 'general'}"):
-        support_message = st.text_area(
-            "Describe the issue (do not include passwords or API keys)",
-            placeholder="What were you doing when the error occurred?",
-            max_chars=2000,
-        )
-        support_submit = st.form_submit_button("Submit support report")
-    if support_submit:
-        if not support_message.strip():
-            st.warning("Please describe the issue before submitting.")
-        else:
-            report_id = log_activity({
-                "user_email": st.session_state.get("user_email", ""),
-                "event_type": "support_request",
-                "query_text": "",
-                "generated_output": "",
-                "status": "support_requested",
-                "error_message": (error_summary or "")[:1000],
-                "support_message": support_message.strip()[:2000],
-                "reference_id": activity_id or "",
-            })
-            if report_id:
-                st.success("Your support report was submitted.")
-            else:
-                st.error("The report could not be saved. Please use the support email link above.")
+        st.info("Support email is not configured. Set SUPPORT_EMAIL in Streamlit secrets.")
 
 
 def render_admin_dashboard():
@@ -265,11 +239,33 @@ st.markdown(
         border-radius:14px;
     }
     [data-testid="stSidebar"] { border-right:1px solid rgba(128,128,128,.2); }
+    /* Keep the support entry point fixed in the bottom-left on login and app pages. */
+    div[class*="st-key-global_support_popover"] {
+        position: fixed !important;
+        left: 1.1rem !important;
+        bottom: 1.1rem !important;
+        z-index: 999999 !important;
+        width: auto !important;
+    }
+    div[class*="st-key-global_support_popover"] button {
+        border-radius: 999px !important;
+        min-height: 44px !important;
+        padding: 0.45rem 1rem !important;
+        box-shadow: 0 4px 18px rgba(0,0,0,.25) !important;
+    }
     a { text-underline-offset:3px; }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+
+# ============================================================
+# GLOBAL FLOATING SUPPORT — VISIBLE ON LOGIN AND APP/DASHBOARD
+# ============================================================
+
+with st.popover("🛟 Support", key="global_support_popover"):
+    render_support_contact()
 
 
 # ============================================================
@@ -402,6 +398,27 @@ if not st.session_state.logged_in:
                         st.error(f"Signup failed: {e}")
 
     st.stop()
+
+
+# ============================================================
+# TOP ACCOUNT MENU — REMAINS AVAILABLE WHEN SIDEBAR IS COLLAPSED
+# ============================================================
+
+account_col, _spacer_col = st.columns([1.25, 8])
+with account_col:
+    with st.popover("👤 Account", use_container_width=True):
+        st.caption("Signed in as")
+        st.markdown(f"**{st.session_state.user_email}**")
+        if st.button("🚪 Logout", key="account_menu_logout", use_container_width=True):
+            try:
+                supabase.auth.sign_out()
+            except Exception:
+                pass
+            st.session_state.logged_in = False
+            st.session_state.user_email = ""
+            for key in ("last_result", "thread_id", "last_activity_id", "last_query_text", "preset_destination", "show_admin_dashboard"):
+                st.session_state.pop(key, None)
+            st.rerun()
 
 
 # ============================================================
@@ -859,83 +876,12 @@ def extract_final_response(result):
 
 
 # ============================================================
-# ACCOUNT MENU + SIDEBAR CONTROLS
+# MINIMAL SIDEBAR — ACCOUNT AND CONVERSATION CONTROLS ONLY
 # ============================================================
-
-# This account popover remains available in the main page even when the
-# Streamlit sidebar is collapsed. Keep the only Logout button here.
-with st.popover("👤 Account", help="Account, support, and sign-out options"):
-    st.caption("Signed in as")
-    st.write(st.session_state.user_email)
-    st.markdown("---")
-    st.markdown("**🛟 Contact support**")
-    account_support_email = _setting("SUPPORT_EMAIL", "")
-    if account_support_email:
-        st.markdown(f"[✉️ Email support](mailto:{account_support_email})")
-        st.caption(account_support_email)
-    else:
-        st.warning(
-            "Support email is not configured for this deployment. "
-            "Add SUPPORT_EMAIL in the app's Streamlit Cloud Secrets, "
-            "then restart/reboot the app."
-        )
-    with st.form("account_support_form"):
-        account_support_message = st.text_area(
-            "Report a problem",
-            placeholder="Describe the issue (do not include passwords or API keys).",
-            max_chars=2000,
-        )
-        account_support_submit = st.form_submit_button("Submit support report")
-    if account_support_submit:
-        if not account_support_message.strip():
-            st.warning("Please describe the issue before submitting.")
-        else:
-            account_report_id = log_activity({
-                "user_email": st.session_state.get("user_email", ""),
-                "event_type": "support_request",
-                "query_text": "",
-                "generated_output": "",
-                "status": "support_requested",
-                "error_message": "",
-                "support_message": account_support_message.strip()[:2000],
-                "reference_id": "",
-            })
-            if account_report_id:
-                st.success("Your support report was submitted.")
-            else:
-                st.error(
-                    "Could not save the report. Check the travel_activity table "
-                    "and its insert policies, or use the support email if configured."
-                )
-    st.markdown("---")
-    if st.button("🚪 Logout", key="account_menu_logout", use_container_width=True):
-        try:
-            supabase.auth.sign_out()
-        except Exception:
-            pass
-        st.session_state.logged_in = False
-        st.session_state.user_email = ""
-        st.session_state.pop("last_result", None)
-        st.session_state.pop("thread_id", None)
-        st.session_state.pop("preset_destination", None)
-        st.session_state.pop("show_admin_dashboard", None)
-        st.rerun()
 
 with st.sidebar:
     st.markdown("## 🌍 Wanderverse")
     st.caption(f"Signed in as {st.session_state.user_email}")
-
-    with st.expander("🛟 Contact support", expanded=True):
-        support_email_sidebar = _setting("SUPPORT_EMAIL", "")
-        if support_email_sidebar:
-            st.markdown(f"[✉️ Email support](mailto:{support_email_sidebar})")
-            st.caption(support_email_sidebar)
-        else:
-            st.warning(
-                "Support email is not configured for this deployment. "
-                "Add SUPPORT_EMAIL in Streamlit Cloud Secrets and restart the app."
-            )
-        st.caption("You can also open 👤 Account at the top of the page to submit a support report.")
 
     if is_admin_user():
         if st.button("🔐 Open admin dashboard", key="open_admin_dashboard"):
@@ -946,9 +892,11 @@ with st.sidebar:
             st.session_state["show_admin_dashboard"] = False
             st.rerun()
 
+    # Initialize a new conversation ID if missing
     if "thread_id" not in st.session_state:
         st.session_state.thread_id = str(uuid.uuid4())
 
+    # Start a new trip
     if st.button("🔄 Start new trip", key="new_conversation_button"):
         st.session_state.thread_id = str(uuid.uuid4())
         st.session_state.pop("last_result", None)
@@ -1525,12 +1473,18 @@ if "last_result" in st.session_state:
         if not activity_id:
             st.warning("We couldn't find a saved trip record for this plan. Please generate the plan again or contact support.")
         else:
-            update_activity(activity_id, {
+            rating_saved = update_activity(activity_id, {
                 "rating": int(selected_rating),
                 "rating_comment": rating_comment.strip()[:1500],
             })
-            st.session_state["rating_submitted_for"] = activity_id
-            st.success("Thank you! Your rating has been submitted.")
+            if rating_saved:
+                st.session_state["rating_submitted_for"] = activity_id
+                st.success("Thank you! Your rating has been submitted.")
+            else:
+                st.error("We could not save your rating. Check the travel_activity update policy and try again.")
+                diagnostic = st.session_state.get("activity_update_error", "")
+                if diagnostic:
+                    st.caption("Save diagnostic: " + diagnostic)
     if st.session_state.get("rating_submitted_for") == st.session_state.get("last_activity_id"):
         st.caption("Your rating for this plan has been saved.")
 
