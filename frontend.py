@@ -50,6 +50,174 @@ except Exception:
 
 
 # ============================================================
+# ACTIVITY LOGGING, RATINGS, SUPPORT, AND ADMIN ACCESS
+# ============================================================
+
+ACTIVITY_TABLE = "travel_activity"
+
+
+def _setting(name, default=""):
+    """Read optional Streamlit secrets without crashing when absent."""
+    try:
+        return str(st.secrets.get(name, default) or default).strip()
+    except Exception:
+        return default
+
+
+def log_activity(payload):
+    """Persist activity to Supabase. Return the inserted row ID if available."""
+    try:
+        response = supabase.table(ACTIVITY_TABLE).insert(payload).execute()
+        rows = getattr(response, "data", None) or []
+        return rows[0].get("id") if rows else None
+    except Exception:
+        # Logging failures must never prevent the travel planner from working.
+        return None
+
+
+def update_activity(activity_id, payload):
+    """Update one activity record; do not expose database errors to users."""
+    if not activity_id:
+        return
+    try:
+        supabase.table(ACTIVITY_TABLE).update(payload).eq("id", activity_id).execute()
+    except Exception:
+        pass
+
+
+def is_admin_user():
+    """Admin access is an explicit email allowlist in Streamlit secrets."""
+    configured = _setting("ADMIN_EMAILS", "")
+    allowed = {item.strip().lower() for item in configured.split(",") if item.strip()}
+    return bool(st.session_state.get("user_email")) and (
+        st.session_state.user_email.strip().lower() in allowed
+    )
+
+
+def render_support_contact(activity_id=None, error_summary=None):
+    """Give users a direct support path without revealing stack traces."""
+    support_email = _setting("SUPPORT_EMAIL", "")
+    st.markdown("### 🛟 Contact support")
+    st.write("If your plan failed, please contact support and include the reference below.")
+    if activity_id:
+        st.code(f"Reference ID: {activity_id}")
+    if error_summary:
+        st.caption(f"Summary: {error_summary[:240]}")
+    if support_email:
+        subject = "Wanderverse support request"
+        body = f"Reference ID: {activity_id or 'not available'}%0AWhat happened: "
+        st.markdown(f"[Email Wanderverse Support](mailto:{support_email}?subject={subject.replace(' ', '%20')}&body={body})")
+        st.caption(f"Support email: {support_email}")
+    else:
+        st.info("Support contact is not configured yet. The administrator should set SUPPORT_EMAIL in Streamlit secrets.")
+    with st.form(f"support_form_{activity_id or 'general'}"):
+        support_message = st.text_area(
+            "Describe the issue (do not include passwords or API keys)",
+            placeholder="What were you doing when the error occurred?",
+            max_chars=2000,
+        )
+        support_submit = st.form_submit_button("Submit support report")
+    if support_submit:
+        if not support_message.strip():
+            st.warning("Please describe the issue before submitting.")
+        else:
+            report_id = log_activity({
+                "user_email": st.session_state.get("user_email", ""),
+                "event_type": "support_request",
+                "query_text": "",
+                "generated_output": "",
+                "status": "support_requested",
+                "error_message": (error_summary or "")[:1000],
+                "support_message": support_message.strip()[:2000],
+                "reference_id": activity_id or "",
+            })
+            if report_id:
+                st.success("Your support report was submitted.")
+            else:
+                st.error("The report could not be saved. Please use the support email link above.")
+
+
+def render_admin_dashboard():
+    """Private admin page: only users in ADMIN_EMAILS can see the records."""
+    st.title("🔐 Wanderverse Admin Dashboard")
+    st.caption("Private operational view of trip searches, generated plans, ratings, and errors.")
+    try:
+        response = (
+            supabase.table(ACTIVITY_TABLE)
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(500)
+            .execute()
+        )
+        rows = getattr(response, "data", None) or []
+    except Exception as exc:
+        st.error("Could not load the activity table. Confirm the Supabase SQL setup and access policies.")
+        st.caption(str(exc)[:300])
+        st.stop()
+
+    trips = [r for r in rows if r.get("event_type", "trip") == "trip"]
+    errors = [r for r in rows if r.get("status") == "error"]
+    ratings = [r for r in rows if r.get("rating") is not None]
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Trip requests", len(trips))
+    c2.metric("Errors", len(errors))
+    c3.metric("Ratings", len(ratings))
+    c4.metric("Average rating", f"{sum(int(r['rating']) for r in ratings) / len(ratings):.1f}/5" if ratings else "—")
+
+    search = st.text_input("Search records by email, query, or error", key="admin_search")
+    if search.strip():
+        needle = search.strip().lower()
+        rows = [r for r in rows if needle in " ".join(str(r.get(k, "")) for k in ("user_email", "query_text", "error_message", "status")).lower()]
+
+    tab_trips, tab_ratings, tab_errors, tab_all = st.tabs(["Trip searches & outputs", "Ratings", "Errors", "All activity"])
+    with tab_trips:
+        trip_rows = [r for r in rows if r.get("event_type", "trip") == "trip"]
+        if not trip_rows:
+            st.info("No trip activity found.")
+        for index, row in enumerate(trip_rows):
+            title = f"{row.get('created_at', 'Unknown time')} · {row.get('user_email', 'Unknown user')} · {row.get('status', 'unknown')}"
+            with st.expander(title, expanded=False):
+                st.markdown("**User search / prompt**")
+                st.write(row.get("query_text") or "No query recorded.")
+                st.markdown("**Generated travel plan**")
+                st.write(row.get("generated_output") or "No output recorded.")
+                st.caption(f"Reference: {row.get('id', '—')} · Rating: {row.get('rating', 'Not rated')}")
+    with tab_ratings:
+        if ratings:
+            for row in ratings:
+                st.write(f"⭐ {row.get('rating')}/5 — {row.get('user_email', 'Unknown user')} — {row.get('created_at', '')}")
+                if row.get("rating_comment"):
+                    st.caption(row["rating_comment"])
+                st.divider()
+        else:
+            st.info("No ratings submitted yet.")
+    with tab_errors:
+        if errors:
+            for row in errors:
+                with st.expander(f"⚠️ {row.get('created_at', '')} · {row.get('user_email', 'Unknown user')}"):
+                    st.write("**Search:**", row.get("query_text") or "Not available")
+                    st.write("**Error:**", row.get("error_message") or "No error message recorded")
+                    st.write("**Reference:**", row.get("id", "—"))
+        else:
+            st.success("No errors recorded in the current results.")
+    with tab_all:
+        if rows:
+            # Avoid displaying sensitive tokens or stack traces; only the structured activity fields are shown.
+            safe_rows = [{
+                "created_at": r.get("created_at"),
+                "user_email": r.get("user_email"),
+                "event_type": r.get("event_type"),
+                "status": r.get("status"),
+                "rating": r.get("rating"),
+                "id": r.get("id"),
+            } for r in rows]
+            st.dataframe(safe_rows, use_container_width=True, hide_index=True)
+        else:
+            st.info("No activity has been recorded.")
+    st.caption("This dashboard shows up to the latest 500 records. Handle user prompts and outputs as private user data.")
+
+
+# ============================================================
 # SESSION STATE
 # ============================================================
 
@@ -708,6 +876,13 @@ with st.sidebar:
     st.markdown("## 🌍 Wanderverse")
     st.caption(f"Signed in as {st.session_state.user_email}")
 
+    with st.expander("🛟 Contact support"):
+        support_email_sidebar = _setting("SUPPORT_EMAIL", "")
+        if support_email_sidebar:
+            st.markdown(f"[Email support](mailto:{support_email_sidebar})")
+        else:
+            st.caption("Support email is not configured. Ask the administrator to set SUPPORT_EMAIL.")
+
     # Logout button
     if st.button("🚪 Logout", key="sidebar_logout_unique"):
         try:
@@ -721,6 +896,15 @@ with st.sidebar:
         st.session_state.pop("thread_id", None)
         st.session_state.pop("preset_destination", None)
         st.rerun()
+
+    if is_admin_user():
+        if st.button("🔐 Open admin dashboard", key="open_admin_dashboard"):
+            st.session_state["show_admin_dashboard"] = True
+            st.rerun()
+    if st.session_state.get("show_admin_dashboard"):
+        if st.button("⬅️ Back to travel planner", key="back_from_admin"):
+            st.session_state["show_admin_dashboard"] = False
+            st.rerun()
 
     # Initialize a new conversation ID if missing
     if "thread_id" not in st.session_state:
@@ -1080,6 +1264,16 @@ with st.form("travel_planning_form"):
     )
 
 
+# Admin dashboard is only available to explicitly allowlisted accounts.
+if st.session_state.get("show_admin_dashboard"):
+    if not is_admin_user():
+        st.session_state["show_admin_dashboard"] = False
+        st.error("You are not authorized to access the admin dashboard.")
+        st.stop()
+    render_admin_dashboard()
+    st.stop()
+
+
 # ============================================================
 # PROCESS REQUEST
 # ============================================================
@@ -1190,25 +1384,48 @@ Instructions:
             }
         }
 
+        # Avoid showing/rating a previous plan if this new request fails.
+        st.session_state.pop("last_result", None)
+        st.session_state.pop("rating_submitted_for", None)
+        activity_id = log_activity({
+            "user_email": st.session_state.get("user_email", ""),
+            "event_type": "trip",
+            "query_text": user_query,
+            "generated_output": "",
+            "status": "processing",
+            "error_message": "",
+            "rating": None,
+            "rating_comment": "",
+        })
+        st.session_state["last_activity_id"] = activity_id
+        st.session_state["last_query_text"] = user_query
+
         with st.spinner(
             "🤖 AI agents are researching your journey..."
         ):
             try:
                 result = app.invoke(initial_state, config=config)
                 st.session_state.last_result = result
+                final_response_for_log = extract_final_response(result)
+                update_activity(activity_id, {
+                    "generated_output": final_response_for_log,
+                    "status": "success",
+                    "error_message": "",
+                })
                 st.success("Your travel plan has been generated!")
 
             except Exception as error:
+                # Store a concise error message, not credentials or a full traceback.
+                safe_error = f"{type(error).__name__}: {str(error)}"[:1000]
+                update_activity(activity_id, {
+                    "status": "error",
+                    "error_message": safe_error,
+                })
                 st.error(
-                    "Something went wrong while generating "
-                    "your travel plan."
+                    "Something went wrong while generating your travel plan. "
+                    "The issue has been logged when storage is available."
                 )
-
-                # Useful during local development. Avoid showing full
-                # tracebacks to public users after deploying.
-                with st.expander("View error details"):
-                    st.code(str(error))
-                    st.code(traceback.format_exc())
+                render_support_contact(activity_id, safe_error)
 
 
 # ============================================================
@@ -1248,6 +1465,36 @@ if "last_result" in st.session_state:
             if itinerary
             else "No separate itinerary output was returned."
         )
+
+    st.divider()
+    st.markdown("### ⭐ Rate your travel plan")
+    st.write("Your feedback helps us improve Wanderverse.")
+    with st.form("travel_plan_rating_form"):
+        selected_rating = st.select_slider(
+            "How would you rate this plan?",
+            options=[1, 2, 3, 4, 5],
+            value=5,
+            format_func=lambda value: f"{'⭐' * value} ({value}/5)",
+        )
+        rating_comment = st.text_area(
+            "Optional feedback",
+            placeholder="What did you like or what should be improved?",
+            max_chars=1500,
+        )
+        rating_submitted = st.form_submit_button("Submit rating")
+    if rating_submitted:
+        activity_id = st.session_state.get("last_activity_id")
+        if not activity_id:
+            st.warning("We couldn't find a saved trip record for this plan. Please generate the plan again or contact support.")
+        else:
+            update_activity(activity_id, {
+                "rating": int(selected_rating),
+                "rating_comment": rating_comment.strip()[:1500],
+            })
+            st.session_state["rating_submitted_for"] = activity_id
+            st.success("Thank you! Your rating has been submitted.")
+    if st.session_state.get("rating_submitted_for") == st.session_state.get("last_activity_id"):
+        st.caption("Your rating for this plan has been saved.")
 
     st.caption(
         "Verify transport schedules, hotel details, prices, "
