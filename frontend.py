@@ -5,6 +5,8 @@ import re
 import html
 import unicodedata
 import random
+import os
+from urllib.parse import quote
 
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut
@@ -57,17 +59,20 @@ ACTIVITY_TABLE = "travel_activity"
 
 
 def _setting(name, default=""):
-    """Read optional Streamlit secrets without crashing when absent."""
+    """Read Streamlit secrets first, then environment variables."""
     try:
-        return str(st.secrets.get(name, default) or default).strip()
+        value = st.secrets.get(name, None)
+        if value not in (None, ""):
+            return str(value).strip()
     except Exception:
-        return default
+        pass
+    return str(os.getenv(name, default) or default).strip()
 
 
 def log_activity(payload):
     """Persist activity to Supabase. Return the inserted row ID if available."""
     try:
-        response = supabase.table(ACTIVITY_TABLE).insert(payload).execute()
+        response = supabase.table(ACTIVITY_TABLE).insert(payload).select("id").execute()
         rows = getattr(response, "data", None) or []
         return rows[0].get("id") if rows else None
     except Exception:
@@ -104,9 +109,14 @@ def render_support_contact(activity_id=None, error_summary=None):
     if error_summary:
         st.caption(f"Summary: {error_summary[:240]}")
     if support_email:
-        subject = "Wanderverse support request"
-        body = f"Reference ID: {activity_id or 'not available'}%0AWhat happened: "
-        st.markdown(f"[Email Wanderverse Support](mailto:{support_email}?subject={subject.replace(' ', '%20')}&body={body})")
+        subject = quote("Wanderverse support request")
+        body = quote(
+            f"Reference ID: {activity_id or 'not available'}\nWhat happened: "
+        )
+        st.markdown(
+            f"[✉️ Email Wanderverse Support](mailto:{support_email}"
+            f"?subject={subject}&body={body})"
+        )
         st.caption(f"Support email: {support_email}")
     else:
         st.info("Support contact is not configured yet. The administrator should set SUPPORT_EMAIL in Streamlit secrets.")
@@ -392,26 +402,6 @@ if not st.session_state.logged_in:
                         st.error(f"Signup failed: {e}")
 
     st.stop()
-
-
-# ============================================================
-# AUTHENTICATED USER / LOGOUT
-# ============================================================
-
-with st.sidebar:
-    st.success(f"Logged in: {st.session_state.user_email}")
-
-    if st.button("🚪 Logout", key="logout_button"):
-        try:
-            supabase.auth.sign_out()
-        except Exception:
-            pass
-
-        st.session_state.logged_in = False
-        st.session_state.user_email = ""
-        st.session_state.pop("last_result", None)
-        st.session_state.pop("thread_id", None)
-        st.rerun()
 
 
 # ============================================================
@@ -869,33 +859,83 @@ def extract_final_response(result):
 
 
 # ============================================================
-# MINIMAL SIDEBAR — ACCOUNT AND CONVERSATION CONTROLS ONLY
+# ACCOUNT MENU + SIDEBAR CONTROLS
 # ============================================================
 
-with st.sidebar:
-    st.markdown("## 🌍 Wanderverse")
-    st.caption(f"Signed in as {st.session_state.user_email}")
-
-    with st.expander("🛟 Contact support"):
-        support_email_sidebar = _setting("SUPPORT_EMAIL", "")
-        if support_email_sidebar:
-            st.markdown(f"[Email support](mailto:{support_email_sidebar})")
+# This account popover remains available in the main page even when the
+# Streamlit sidebar is collapsed. Keep the only Logout button here.
+with st.popover("👤 Account", help="Account, support, and sign-out options"):
+    st.caption("Signed in as")
+    st.write(st.session_state.user_email)
+    st.markdown("---")
+    st.markdown("**🛟 Contact support**")
+    account_support_email = _setting("SUPPORT_EMAIL", "")
+    if account_support_email:
+        st.markdown(f"[✉️ Email support](mailto:{account_support_email})")
+        st.caption(account_support_email)
+    else:
+        st.warning(
+            "Support email is not configured for this deployment. "
+            "Add SUPPORT_EMAIL in the app's Streamlit Cloud Secrets, "
+            "then restart/reboot the app."
+        )
+    with st.form("account_support_form"):
+        account_support_message = st.text_area(
+            "Report a problem",
+            placeholder="Describe the issue (do not include passwords or API keys).",
+            max_chars=2000,
+        )
+        account_support_submit = st.form_submit_button("Submit support report")
+    if account_support_submit:
+        if not account_support_message.strip():
+            st.warning("Please describe the issue before submitting.")
         else:
-            st.caption("Support email is not configured. Ask the administrator to set SUPPORT_EMAIL.")
-
-    # Logout button
-    if st.button("🚪 Logout", key="sidebar_logout_unique"):
+            account_report_id = log_activity({
+                "user_email": st.session_state.get("user_email", ""),
+                "event_type": "support_request",
+                "query_text": "",
+                "generated_output": "",
+                "status": "support_requested",
+                "error_message": "",
+                "support_message": account_support_message.strip()[:2000],
+                "reference_id": "",
+            })
+            if account_report_id:
+                st.success("Your support report was submitted.")
+            else:
+                st.error(
+                    "Could not save the report. Check the travel_activity table "
+                    "and its insert policies, or use the support email if configured."
+                )
+    st.markdown("---")
+    if st.button("🚪 Logout", key="account_menu_logout", use_container_width=True):
         try:
             supabase.auth.sign_out()
         except Exception:
             pass
-
         st.session_state.logged_in = False
         st.session_state.user_email = ""
         st.session_state.pop("last_result", None)
         st.session_state.pop("thread_id", None)
         st.session_state.pop("preset_destination", None)
+        st.session_state.pop("show_admin_dashboard", None)
         st.rerun()
+
+with st.sidebar:
+    st.markdown("## 🌍 Wanderverse")
+    st.caption(f"Signed in as {st.session_state.user_email}")
+
+    with st.expander("🛟 Contact support", expanded=True):
+        support_email_sidebar = _setting("SUPPORT_EMAIL", "")
+        if support_email_sidebar:
+            st.markdown(f"[✉️ Email support](mailto:{support_email_sidebar})")
+            st.caption(support_email_sidebar)
+        else:
+            st.warning(
+                "Support email is not configured for this deployment. "
+                "Add SUPPORT_EMAIL in Streamlit Cloud Secrets and restart the app."
+            )
+        st.caption("You can also open 👤 Account at the top of the page to submit a support report.")
 
     if is_admin_user():
         if st.button("🔐 Open admin dashboard", key="open_admin_dashboard"):
@@ -906,11 +946,9 @@ with st.sidebar:
             st.session_state["show_admin_dashboard"] = False
             st.rerun()
 
-    # Initialize a new conversation ID if missing
     if "thread_id" not in st.session_state:
         st.session_state.thread_id = str(uuid.uuid4())
 
-    # Start a new trip
     if st.button("🔄 Start new trip", key="new_conversation_button"):
         st.session_state.thread_id = str(uuid.uuid4())
         st.session_state.pop("last_result", None)
