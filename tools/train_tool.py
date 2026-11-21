@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-QRAIL_API_KEY = os.getenv("QRAIL_API_KEY", "").strip()
+QRAIL_API_KEY = os.getenv("qrsMKvCcU8xUJAIbii99EYKvt5HqA3pB9zZA7nLqxgaDgvoE3eyMPDk4ADGd", "").strip()
 QRAIL_BETWEEN_STATIONS_URL = os.getenv("QRAIL_BETWEEN_STATIONS_URL", "").strip()
 
 
