@@ -6,6 +6,8 @@ import html
 import unicodedata
 import random
 
+import folium
+from streamlit_folium import st_folium
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut
 from country_state_city import Country, State, City
@@ -823,6 +825,77 @@ def format_location(location):
     return base_location or "Location not specified"
 
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def geocode_for_map(location_text):
+    """Resolve a place name to coordinates for the map; cache results for one day."""
+    if not location_text or location_text == "Location not specified":
+        return None
+    try:
+        geolocator = Nominatim(
+            user_agent="WanderverseAITravelPlanner/1.0 (interactive map)"
+        )
+        place = geolocator.geocode(location_text, timeout=10)
+        if place:
+            return {
+                "latitude": float(place.latitude),
+                "longitude": float(place.longitude),
+                "display_name": place.address,
+            }
+    except (GeocoderServiceError, GeocoderTimedOut, OSError):
+        return None
+    except Exception:
+        return None
+    return None
+
+
+def render_trip_map(origin_text, destination_text):
+    """Render a basic interactive map with origin/destination markers."""
+    st.markdown("### 🗺️ Trip map")
+    with st.spinner("Finding the locations for your map..."):
+        origin_point = geocode_for_map(origin_text)
+        destination_point = geocode_for_map(destination_text)
+
+    if not origin_point or not destination_point:
+        st.info(
+            "The map could not find one or both locations. Check the place names "
+            "and try again. Your generated travel plan is still available."
+        )
+        return
+
+    origin_coords = [origin_point["latitude"], origin_point["longitude"]]
+    destination_coords = [destination_point["latitude"], destination_point["longitude"]]
+    center = [
+        (origin_coords[0] + destination_coords[0]) / 2,
+        (origin_coords[1] + destination_coords[1]) / 2,
+    ]
+    trip_map = folium.Map(location=center, zoom_start=5, control_scale=True)
+    folium.Marker(
+        origin_coords,
+        tooltip="Starting point",
+        popup=folium.Popup(f"<b>From:</b> {html.escape(origin_text)}", max_width=300),
+        icon=folium.Icon(color="green", icon="play"),
+    ).add_to(trip_map)
+    folium.Marker(
+        destination_coords,
+        tooltip="Destination",
+        popup=folium.Popup(f"<b>To:</b> {html.escape(destination_text)}", max_width=300),
+        icon=folium.Icon(color="red", icon="flag"),
+    ).add_to(trip_map)
+    folium.PolyLine(
+        [origin_coords, destination_coords],
+        tooltip="Straight-line connection (not a road route)",
+        weight=3,
+        opacity=0.8,
+        dash_array="8, 8",
+    ).add_to(trip_map)
+    trip_map.fit_bounds([origin_coords, destination_coords], padding=(30, 30))
+    st_folium(trip_map, use_container_width=True, height=480, returned_objects=[])
+    st.caption(
+        "Map locations are estimated from OpenStreetMap geocoding. The dashed line "
+        "shows a straight-line connection, not driving directions or a confirmed route."
+    )
+
+
 # ============================================================
 # EXTRACT FINAL RESPONSE
 # ============================================================
@@ -1315,6 +1388,8 @@ if submitted:
 
         origin_text = format_location(origin)
         destination_text = format_location(destination)
+        st.session_state["map_origin_text"] = origin_text
+        st.session_state["map_destination_text"] = destination_text
 
         interests_text = (
             ", ".join(interests) if interests else "General sightseeing"
@@ -1425,6 +1500,11 @@ if "last_result" in st.session_state:
     st.markdown("## 🗺️ Your Travel Plan")
     final_response = extract_final_response(result)
     st.markdown(final_response)
+
+    map_origin_text = st.session_state.get("map_origin_text", "")
+    map_destination_text = st.session_state.get("map_destination_text", "")
+    if map_origin_text and map_destination_text:
+        render_trip_map(map_origin_text, map_destination_text)
 
     with st.expander("🔎 View research results"):
         flight_results = result.get("flight_results", "")
